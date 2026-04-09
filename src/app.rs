@@ -98,9 +98,9 @@ impl TensorLApp {
             use raw_window_handle::{HasWindowHandle, RawWindowHandle};
             match cc.window_handle().ok().map(|h| h.as_raw()) {
                 Some(RawWindowHandle::Win32(h)) => {
-                    windows::Win32::Foundation::HWND(h.hwnd.get() as isize)
+                    windows::Win32::Foundation::HWND(h.hwnd.get() as *mut std::ffi::c_void)
                 }
-                _ => windows::Win32::Foundation::HWND(0),
+                _ => windows::Win32::Foundation::HWND(std::ptr::null_mut()),
             }
         };
 
@@ -262,7 +262,7 @@ impl TensorLApp {
                     ui.add_space(16.0);
 
                     // Source language
-                    egui::ComboBox::from_id_source("src_lang")
+                    egui::ComboBox::from_id_salt("src_lang")
                         .selected_text(self.source_lang.display_name())
                         .width(180.0)
                         .show_ui(ui, |ui| {
@@ -296,7 +296,7 @@ impl TensorLApp {
                     ui.add_space(8.0);
 
                     // Target language
-                    egui::ComboBox::from_id_source("tgt_lang")
+                    egui::ComboBox::from_id_salt("tgt_lang")
                         .selected_text(self.target_lang.display_name())
                         .width(180.0)
                         .show_ui(ui, |ui| {

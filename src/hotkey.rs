@@ -1,5 +1,5 @@
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use keyboard_types::{Code, Modifiers};

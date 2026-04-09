@@ -1,5 +1,4 @@
 use std::num::NonZeroU32;
-use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -7,7 +6,7 @@ use llama_cpp_2::{
     context::params::LlamaContextParams,
     llama_backend::LlamaBackend,
     llama_batch::LlamaBatch,
-    model::{params::LlamaModelParams, AddBos, LlamaModel, Special},
+    model::{params::LlamaModelParams, AddBos, LlamaModel},
     sampling::LlamaSampler,
 };
 
@@ -234,7 +233,7 @@ fn run_translation(
         }
 
         let piece = model
-            .token_to_str(token, Special::Tokenize)
+            .token_to_piece(token)
             .unwrap_or_default();
 
         if piece.contains("<|im_") {
