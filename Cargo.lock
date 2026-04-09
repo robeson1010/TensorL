@@ -3990,6 +3990,7 @@ dependencies = [
  "dirs",
  "eframe",
  "egui",
+ "encoding_rs",
  "env_logger",
  "global-hotkey",
  "image",

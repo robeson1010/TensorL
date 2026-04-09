@@ -15,6 +15,7 @@ egui         = "0.29"
 
 # LLM inference (GGUF via llama.cpp)
 llama-cpp-2  = "0.1"
+encoding_rs  = "0.8"
 
 # Global hotkey
 global-hotkey  = "0.6"

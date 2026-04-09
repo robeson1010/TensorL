@@ -223,6 +223,7 @@ fn run_translation(
 
     let mut n_cur = tokens.len() as i32;
     let n_max = n_cur + 2048;
+    let mut decoder = encoding_rs::UTF_8.new_decoder();
 
     while n_cur < n_max {
         let token = sampler.sample(&ctx, batch.n_tokens() - 1);
@@ -233,7 +234,7 @@ fn run_translation(
         }
 
         let piece = model
-            .token_to_piece(token)
+            .token_to_piece(token, &mut decoder, false, None)
             .unwrap_or_default();
 
         if piece.contains("<|im_") {
