@@ -1,0 +1,67 @@
+[package]
+name = "tensorl"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[[bin]]
+name = "tensorl"
+path = "src/main.rs"
+
+[dependencies]
+# GUI
+eframe       = { version = "0.29", features = ["persistence"] }
+egui         = "0.29"
+
+# LLM inference (GGUF via llama.cpp)
+llama-cpp-2  = "0.1"
+
+# Global hotkey
+global-hotkey  = "0.6"
+keyboard-types = "0.7"
+
+# Clipboard
+arboard = "3"
+
+# System tray
+tray-icon = "0.14"
+
+# Native file dialog
+rfd = "0.14"
+
+# Config serialization
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Config path helper
+dirs = "5"
+
+# Image loading (for icon embedding)
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+# Window handle access (for Win32 HWND capture)
+raw-window-handle = "0.6"
+
+# Error handling & logging
+thiserror  = "2"
+log        = "0.4"
+env_logger = "0.11"
+
+# Win32 access
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[build-dependencies]
+winresource = "0.1"
+
+[features]
+default = []
+cuda    = ["llama-cpp-2/cuda"]
+vulkan  = ["llama-cpp-2/vulkan"]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
