@@ -12,14 +12,13 @@ path = "src/main.rs"
 # GUI
 eframe       = { version = "0.29", features = ["persistence"] }
 egui         = "0.29"
+egui_extras  = { version = "0.29", features = ["image"] }
 
 # LLM inference (GGUF via llama.cpp)
 llama-cpp-2  = "0.1"
 encoding_rs  = "0.8"
 
-# Global hotkey
-global-hotkey  = "0.6"
-keyboard-types = "0.7"
+# Global hotkey (low-level keyboard hook — does not intercept Ctrl+C)
 
 # Clipboard
 arboard = "3"
@@ -53,6 +52,7 @@ env_logger = "0.11"
 windows = { version = "0.58", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
 ] }
 
 [build-dependencies]

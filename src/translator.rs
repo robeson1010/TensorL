@@ -222,7 +222,7 @@ fn run_translation(
     ]);
 
     let mut n_cur = tokens.len() as i32;
-    let n_max = n_cur + 2048;
+    let n_max = n_cur + 4096;
     let mut decoder = encoding_rs::UTF_8.new_decoder();
 
     while n_cur < n_max {
@@ -237,7 +237,7 @@ fn run_translation(
             .token_to_piece(token, &mut decoder, false, None)
             .unwrap_or_default();
 
-        if piece.contains("<|im_") {
+        if piece.contains("<|im_") || piece.contains("<|endoftext|>") {
             break;
         }
 
@@ -264,18 +264,9 @@ fn run_translation(
 
 // ── Prompt builder ───────────────────────────────────────────────────────────
 
-pub fn build_prompt(text: &str, source: Language, target: Language) -> String {
-    let use_chinese = source.is_chinese() || target.is_chinese();
-
-    if use_chinese {
-        let tgt = target.hy_mt_zh_name();
-        format!(
-            "<|im_start|>user\n将以下文本翻译为{tgt}，注意只需要输出翻译后的结果，不要额外解释：\n\n{text}<|im_end|>\n<|im_start|>assistant\n"
-        )
-    } else {
-        let tgt = target.hy_mt_en_name();
-        format!(
-            "<|im_start|>user\nTranslate the following segment into {tgt}, without additional explanation.\n\n{text}<|im_end|>\n<|im_start|>assistant\n"
-        )
-    }
+pub fn build_prompt(text: &str, _source: Language, target: Language) -> String {
+    let tgt = target.hy_mt_en_name();
+    format!(
+        "<|im_start|>user\nTranslate the following segment into {tgt}, without additional explanation.\n\n{text}<|im_end|>\n<|im_start|>assistant\n"
+    )
 }

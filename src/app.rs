@@ -43,11 +43,13 @@ pub struct TensorLApp {
     target_lang:  Language,
 
     // UI helpers
-    copy_toast:         Option<Instant>,
-    window_visible:     bool,
-    show_settings:      bool,
-    gpu_available:      bool,
-    pending_model_path: String,
+    copy_toast:          Option<Instant>,
+    window_visible:      bool,
+    show_settings:       bool,
+    gpu_available:       bool,
+    pending_model_path:  String,
+    show_all_src_langs:  bool,
+    show_all_tgt_langs:  bool,
 
     // Config
     config: AppConfig,
@@ -68,6 +70,37 @@ impl TensorLApp {
         ui_tx: mpsc::Sender<UiMsg>,
         config: AppConfig,
     ) -> Self {
+        // --- Install PNG/image loader (required for egui::include_image!) ---
+        egui_extras::install_image_loaders(&cc.egui_ctx);
+
+        // --- Font setup ---
+        // Fallback chain (Proportional): egui default → Segoe UI Symbol → CJK font
+        // This ensures: Latin glyphs from egui, UI symbols (⇄ ⚙ ✕ …) from Segoe UI Symbol,
+        // and Chinese/CJK characters from Microsoft YaHei / SimSun.
+        let mut fonts = egui::FontDefinitions::default();
+
+        // 1. Symbol font — covers ⇄ ⚙ ✕ and the full Unicode Misc Symbols block
+        if let Ok(data) = std::fs::read("C:\\Windows\\Fonts\\seguisym.ttf") {
+            fonts.font_data.insert("symbol_font".to_owned(), egui::FontData::from_owned(data));
+            fonts.families.entry(egui::FontFamily::Proportional).or_default().push("symbol_font".to_owned());
+        }
+
+        // 2. CJK font — covers Chinese / Japanese / Korean characters
+        let cjk_font_paths = [
+            "C:\\Windows\\Fonts\\msyh.ttc",   // Microsoft YaHei
+            "C:\\Windows\\Fonts\\simsun.ttc",  // SimSun fallback
+        ];
+        for path in &cjk_font_paths {
+            if let Ok(data) = std::fs::read(path) {
+                fonts.font_data.insert("cjk_font".to_owned(), egui::FontData::from_owned(data));
+                fonts.families.entry(egui::FontFamily::Proportional).or_default().push("cjk_font".to_owned());
+                fonts.families.entry(egui::FontFamily::Monospace).or_default().push("cjk_font".to_owned());
+                break;
+            }
+        }
+
+        cc.egui_ctx.set_fonts(fonts);
+
         // --- egui visual style (DeepL dark theme) ---
         let mut visuals = egui::Visuals::dark();
         visuals.panel_fill         = Color32::from_rgb(20, 20, 24);
@@ -127,6 +160,8 @@ impl TensorLApp {
             show_settings: false,
             gpu_available: false,
             pending_model_path,
+            show_all_src_langs: false,
+            show_all_tgt_langs: false,
             config,
             ctx: Some(cc.egui_ctx.clone()),
             #[cfg(target_os = "windows")]
@@ -197,7 +232,16 @@ impl TensorLApp {
                     self.output_text.push_str(&t);
                     self.state = TranslationState::Translating;
                 }
-                UiMsg::TranslationDone  => { self.state = TranslationState::Done; }
+                UiMsg::TranslationDone => {
+                    // Strip any stop tokens the model leaked (may arrive as split sub-tokens)
+                    for stop in &["<|im_end|>", "<|im_start|>", "<|endoftext|>"] {
+                        if let Some(pos) = self.output_text.find(stop) {
+                            self.output_text.truncate(pos);
+                        }
+                    }
+                    self.output_text = self.output_text.trim_end().to_string();
+                    self.state = TranslationState::Done;
+                }
                 UiMsg::TranslationError(e) => { self.state = TranslationState::Error(e); }
             }
         }
@@ -266,7 +310,12 @@ impl TensorLApp {
                         .selected_text(self.source_lang.display_name())
                         .width(180.0)
                         .show_ui(ui, |ui| {
-                            for &lang in Language::all() {
+                            let langs = if self.show_all_src_langs {
+                                Language::all()
+                            } else {
+                                Language::common_sources()
+                            };
+                            for &lang in langs {
                                 let changed = ui
                                     .selectable_value(
                                         &mut self.source_lang,
@@ -275,6 +324,12 @@ impl TensorLApp {
                                     )
                                     .changed();
                                 if changed { self.save_config(); }
+                            }
+                            if !self.show_all_src_langs {
+                                ui.separator();
+                                if ui.button("More languages…").clicked() {
+                                    self.show_all_src_langs = true;
+                                }
                             }
                         });
 
@@ -300,7 +355,12 @@ impl TensorLApp {
                         .selected_text(self.target_lang.display_name())
                         .width(180.0)
                         .show_ui(ui, |ui| {
-                            for &lang in Language::all_targets() {
+                            let langs = if self.show_all_tgt_langs {
+                                Language::all_targets()
+                            } else {
+                                Language::common_targets()
+                            };
+                            for &lang in langs {
                                 let changed = ui
                                     .selectable_value(
                                         &mut self.target_lang,
@@ -309,6 +369,12 @@ impl TensorLApp {
                                     )
                                     .changed();
                                 if changed { self.save_config(); }
+                            }
+                            if !self.show_all_tgt_langs {
+                                ui.separator();
+                                if ui.button("More languages…").clicked() {
+                                    self.show_all_tgt_langs = true;
+                                }
                             }
                         });
 
