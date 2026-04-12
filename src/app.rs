@@ -886,9 +886,9 @@ impl TensorLApp {
                 ui.radio_value(&mut self.config.backend, Backend::Cpu, "CPU");
 
                 let gpu_label = if self.gpu_available {
-                    "GPU (CUDA/Vulkan)"
+                    "GPU (CUDA)"
                 } else {
-                    "GPU (当前构建不可用)"
+                    "GPU (未检测到 CUDA)"
                 };
                 ui.add_enabled_ui(self.gpu_available, |ui| {
                     ui.radio_value(&mut self.config.backend, Backend::Gpu, gpu_label);
@@ -901,9 +901,9 @@ impl TensorLApp {
                 ui.add_space(4.0);
                 ui.label(
                     RichText::new(if self.gpu_available {
-                        "已启用 GPU 支持"
+                        "已检测到 NVIDIA GPU，可选择 GPU 加速"
                     } else {
-                        "使用 --features cuda 重新构建以启用 GPU"
+                        "未检测到 CUDA 驱动，仅支持 CPU 推理"
                     })
                     .small()
                     .color(TEXT_HINT),

@@ -54,8 +54,8 @@ fn run_inference_loop(
     infer_rx: mpsc::Receiver<InferRequest>,
     ui_tx: mpsc::Sender<UiMsg>,
 ) {
-    // Detect GPU at build time
-    let gpu_available = cfg!(any(feature = "cuda", feature = "vulkan"));
+    // Detect CUDA at runtime by trying to load nvcuda.dll
+    let gpu_available = detect_cuda_runtime();
     let _ = ui_tx.send(UiMsg::GpuAvailable(gpu_available));
 
     let backend = match LlamaBackend::init() {
@@ -267,4 +267,31 @@ pub fn build_prompt(text: &str, _source: Language, target: Language) -> String {
     format!(
         "<|im_start|>user\nTranslate the following segment into {tgt}, without additional explanation.\n\n{text}<|im_end|>\n<|im_start|>assistant\n"
     )
+}
+
+// ── Runtime CUDA detection ──────────────────────────────────────────────────
+
+/// Check if CUDA is available at runtime by loading nvcuda.dll.
+/// This lets a single binary work on both CUDA and non-CUDA machines.
+fn detect_cuda_runtime() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use std::ffi::CString;
+        extern "system" {
+            fn LoadLibraryA(name: *const u8) -> *mut std::ffi::c_void;
+            fn FreeLibrary(handle: *mut std::ffi::c_void) -> i32;
+        }
+        let name = CString::new("nvcuda.dll").unwrap();
+        let handle = unsafe { LoadLibraryA(name.as_ptr() as *const u8) };
+        if handle.is_null() {
+            false
+        } else {
+            unsafe { FreeLibrary(handle); }
+            true
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
 }

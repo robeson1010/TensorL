@@ -32,19 +32,17 @@ jobs:
           method: network
 
       - name: Build release (CUDA, max optimization)
-        env:
-          RUSTFLAGS: "-C target-cpu=native"
         run: cargo build --release --target x86_64-pc-windows-msvc --features cuda
 
       - name: Rename binary
-        run: Copy-Item "target\x86_64-pc-windows-msvc\release\tensorl.exe" "TensorL-cuda.exe"
+        run: Copy-Item "target\x86_64-pc-windows-msvc\release\tensorl.exe" "TensorL.exe"
         shell: pwsh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TensorL-cuda
-          path: TensorL-cuda.exe
+          name: TensorL
+          path: TensorL.exe
 
   release:
     name: Create Release
@@ -64,4 +62,4 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
-          files: dist/TensorL-cuda.exe
+          files: dist/TensorL.exe
