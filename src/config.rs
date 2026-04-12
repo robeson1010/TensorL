@@ -25,26 +25,12 @@ pub enum Language {
     Malay,
     Indonesian,
     Filipino,
-    Hindi,
-    TraditionalChinese,
     Polish,
     Czech,
     Dutch,
-    Khmer,
-    Burmese,
-    Persian,
-    Gujarati,
-    Urdu,
-    Telugu,
-    Marathi,
-    Hebrew,
-    Bengali,
-    Tamil,
     Ukrainian,
-    Tibetan,
     Kazakh,
     Mongolian,
-    Uyghur,
     Cantonese,
 }
 
@@ -69,10 +55,8 @@ impl Language {
             Chinese, English,
             French, Portuguese, Spanish, Japanese, Turkish, Russian, Arabic,
             Korean, Thai, Italian, German, Vietnamese, Malay, Indonesian,
-            Filipino, Hindi, TraditionalChinese, Polish, Czech, Dutch,
-            Khmer, Burmese, Persian, Gujarati, Urdu, Telugu, Marathi,
-            Hebrew, Bengali, Tamil, Ukrainian, Tibetan, Kazakh, Mongolian,
-            Uyghur, Cantonese,
+            Filipino, Polish, Czech, Dutch,
+            Ukrainian, Kazakh, Mongolian, Cantonese,
         ]
     }
 
@@ -83,10 +67,8 @@ impl Language {
             Chinese, English,
             French, Portuguese, Spanish, Japanese, Turkish, Russian, Arabic,
             Korean, Thai, Italian, German, Vietnamese, Malay, Indonesian,
-            Filipino, Hindi, TraditionalChinese, Polish, Czech, Dutch,
-            Khmer, Burmese, Persian, Gujarati, Urdu, Telugu, Marathi,
-            Hebrew, Bengali, Tamil, Ukrainian, Tibetan, Kazakh, Mongolian,
-            Uyghur, Cantonese,
+            Filipino, Polish, Czech, Dutch,
+            Ukrainian, Kazakh, Mongolian, Cantonese,
         ]
     }
 
@@ -111,26 +93,12 @@ impl Language {
             Language::Malay             => "Bahasa Melayu (Malay)",
             Language::Indonesian        => "Bahasa Indonesia (Indonesian)",
             Language::Filipino          => "Filipino",
-            Language::Hindi             => "हिन्दी (Hindi)",
-            Language::TraditionalChinese => "繁體中文 (Traditional Chinese)",
             Language::Polish            => "Polski (Polish)",
             Language::Czech             => "Čeština (Czech)",
             Language::Dutch             => "Nederlands (Dutch)",
-            Language::Khmer             => "ភាសាខ្មែរ (Khmer)",
-            Language::Burmese           => "မြန်မာဘာသာ (Burmese)",
-            Language::Persian           => "فارسی (Persian)",
-            Language::Gujarati          => "ગુજરાતી (Gujarati)",
-            Language::Urdu              => "اردو (Urdu)",
-            Language::Telugu            => "తెలుగు (Telugu)",
-            Language::Marathi           => "मराठी (Marathi)",
-            Language::Hebrew            => "עברית (Hebrew)",
-            Language::Bengali           => "বাংলা (Bengali)",
-            Language::Tamil             => "தமிழ் (Tamil)",
             Language::Ukrainian         => "Українська (Ukrainian)",
-            Language::Tibetan           => "བོད་སྐད (Tibetan)",
             Language::Kazakh            => "Қазақша (Kazakh)",
             Language::Mongolian         => "Монгол (Mongolian)",
-            Language::Uyghur            => "ئۇيغۇرچە (Uyghur)",
             Language::Cantonese         => "粤语 (Cantonese)",
         }
     }
@@ -156,26 +124,12 @@ impl Language {
             Language::Malay             => "Malay",
             Language::Indonesian        => "Indonesian",
             Language::Filipino          => "Filipino",
-            Language::Hindi             => "Hindi",
-            Language::TraditionalChinese => "Traditional Chinese",
             Language::Polish            => "Polish",
             Language::Czech             => "Czech",
             Language::Dutch             => "Dutch",
-            Language::Khmer             => "Khmer",
-            Language::Burmese           => "Burmese",
-            Language::Persian           => "Persian",
-            Language::Gujarati          => "Gujarati",
-            Language::Urdu              => "Urdu",
-            Language::Telugu            => "Telugu",
-            Language::Marathi           => "Marathi",
-            Language::Hebrew            => "Hebrew",
-            Language::Bengali           => "Bengali",
-            Language::Tamil             => "Tamil",
             Language::Ukrainian         => "Ukrainian",
-            Language::Tibetan           => "Tibetan",
             Language::Kazakh            => "Kazakh",
             Language::Mongolian         => "Mongolian",
-            Language::Uyghur            => "Uyghur",
             Language::Cantonese         => "Cantonese",
         }
     }
@@ -201,26 +155,12 @@ impl Language {
             Language::Malay             => "马来语",
             Language::Indonesian        => "印尼语",
             Language::Filipino          => "菲律宾语",
-            Language::Hindi             => "印地语",
-            Language::TraditionalChinese => "繁体中文",
             Language::Polish            => "波兰语",
             Language::Czech             => "捷克语",
             Language::Dutch             => "荷兰语",
-            Language::Khmer             => "高棉语",
-            Language::Burmese           => "缅甸语",
-            Language::Persian           => "波斯语",
-            Language::Gujarati          => "古吉拉特语",
-            Language::Urdu              => "乌尔都语",
-            Language::Telugu            => "泰卢固语",
-            Language::Marathi           => "马拉地语",
-            Language::Hebrew            => "希伯来语",
-            Language::Bengali           => "孟加拉语",
-            Language::Tamil             => "泰米尔语",
             Language::Ukrainian         => "乌克兰语",
-            Language::Tibetan           => "藏语",
             Language::Kazakh            => "哈萨克语",
             Language::Mongolian         => "蒙古语",
-            Language::Uyghur            => "维吾尔语",
             Language::Cantonese         => "粤语",
         }
     }
@@ -228,7 +168,7 @@ impl Language {
     pub fn is_chinese(self) -> bool {
         matches!(
             self,
-            Language::Chinese | Language::TraditionalChinese | Language::Cantonese
+            Language::Chinese | Language::Cantonese
         )
     }
 }

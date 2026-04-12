@@ -26,8 +26,6 @@ pub enum InferRequest {
 
 pub enum UiMsg {
     HotkeyFired,
-    TrayToggle,
-    TrayQuit,
     ModelLoaded,
     ModelLoadProgress { percent: f32, stage: String },
     ModelError(String),

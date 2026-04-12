@@ -6,7 +6,6 @@ mod app;
 mod config;
 mod hotkey;
 mod translator;
-mod tray;
 
 use std::sync::mpsc;
 
@@ -28,7 +27,7 @@ fn main() -> eframe::Result<()> {
 
     // Spawn background threads
     hotkey::spawn_hotkey_thread(ui_tx.clone());
-    translator::spawn_inference_thread(config.clone(), infer_rx, ui_tx.clone());
+    translator::spawn_inference_thread(config.clone(), infer_rx, ui_tx);
 
     // Build window icon from embedded PNG
     let icon = {
@@ -49,6 +48,7 @@ fn main() -> eframe::Result<()> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("TensorL")
+            .with_decorations(false)
             .with_inner_size([880.0, 520.0])
             .with_min_inner_size([600.0, 380.0])
             .with_icon(std::sync::Arc::new(icon))
@@ -64,7 +64,6 @@ fn main() -> eframe::Result<()> {
                 cc,
                 ui_rx,
                 infer_tx,
-                ui_tx,
                 config,
             )))
         }),
