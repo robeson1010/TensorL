@@ -53,6 +53,7 @@ fn main() -> eframe::Result<()> {
             .with_min_inner_size([600.0, 380.0])
             .with_icon(std::sync::Arc::new(icon))
             .with_taskbar(true),
+        persist_window: false,
         ..Default::default()
     };
 
