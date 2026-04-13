@@ -18,5 +18,15 @@ fn main() {
                  Convert assets/icon.png to icon.ico to fix."
             );
         }
+
+        // Delay-load CUDA DLLs so the EXE can start without them installed.
+        // The DLLs are only loaded when CUDA functions are actually called,
+        // which only happens if detect_cuda_runtime() succeeds and user picks GPU.
+        if cfg!(feature = "cuda") {
+            println!("cargo:rustc-link-arg=/DELAYLOAD:cudart64_12.dll");
+            println!("cargo:rustc-link-arg=/DELAYLOAD:cublas64_12.dll");
+            println!("cargo:rustc-link-arg=/DELAYLOAD:cublasLt64_12.dll");
+            println!("cargo:rustc-link-lib=delayimp");
+        }
     }
 }

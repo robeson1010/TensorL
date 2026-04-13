@@ -271,7 +271,8 @@ pub fn build_prompt(text: &str, _source: Language, target: Language) -> String {
 
 // ── Runtime CUDA detection ──────────────────────────────────────────────────
 
-/// Check if CUDA is available at runtime by loading nvcuda.dll.
+/// Check if CUDA is available at runtime by probing for both the driver
+/// (`nvcuda.dll`) and the runtime library (`cudart64_12.dll`).
 /// This lets a single binary work on both CUDA and non-CUDA machines.
 fn detect_cuda_runtime() -> bool {
     #[cfg(target_os = "windows")]
@@ -281,14 +282,20 @@ fn detect_cuda_runtime() -> bool {
             fn LoadLibraryA(name: *const u8) -> *mut std::ffi::c_void;
             fn FreeLibrary(handle: *mut std::ffi::c_void) -> i32;
         }
-        let name = CString::new("nvcuda.dll").unwrap();
-        let handle = unsafe { LoadLibraryA(name.as_ptr() as *const u8) };
-        if handle.is_null() {
-            false
-        } else {
-            unsafe { FreeLibrary(handle); }
-            true
+
+        fn try_load(dll: &str) -> bool {
+            let name = CString::new(dll).unwrap();
+            let handle = unsafe { LoadLibraryA(name.as_ptr() as *const u8) };
+            if handle.is_null() {
+                false
+            } else {
+                unsafe { FreeLibrary(handle); }
+                true
+            }
         }
+
+        // Both the CUDA driver and the CUDA 12 runtime must be present
+        try_load("nvcuda.dll") && try_load("cudart64_12.dll")
     }
     #[cfg(not(target_os = "windows"))]
     {
