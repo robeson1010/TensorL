@@ -33,6 +33,13 @@ jobs:
 
       - name: Build release (CUDA, max optimization)
         run: cargo build --release --target x86_64-pc-windows-msvc --features cuda
+        env:
+          # Enable AVX2/FMA/F16C — covers Intel Haswell (2013) and AMD Zen (2017) onward.
+          # llama-cpp-sys-2 build.rs auto-maps these to GGML_AVX2, GGML_FMA, GGML_F16C etc.
+          RUSTFLAGS: "-C target-cpu=x86-64-v3"
+          # Only compile CUDA kernels for Turing+ (RTX 2000/3000/4000/5000 series).
+          # Drops sm_50/61/70 virtual PTX → significantly smaller binary.
+          CMAKE_CUDA_ARCHITECTURES: "75-virtual;80-virtual;86-real;89-real"
 
       - name: Rename binary
         run: Copy-Item "target\x86_64-pc-windows-msvc\release\tensorl.exe" "TensorL.exe"
