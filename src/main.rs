@@ -12,7 +12,29 @@ use std::sync::mpsc;
 use config::{config_path, AppConfig};
 use translator::{InferRequest, UiMsg};
 
+#[cfg(windows)]
+fn acquire_single_instance_lock() -> Option<windows::Win32::Foundation::HANDLE> {
+    use windows::core::w;
+    use windows::Win32::Foundation::ERROR_ALREADY_EXISTS;
+    use windows::Win32::System::Threading::CreateMutexW;
+
+    let handle = unsafe { CreateMutexW(None, true, w!("Global\\TensorL_SingleInstance")).ok()? };
+    let already_running = unsafe { windows::Win32::Foundation::GetLastError() } == ERROR_ALREADY_EXISTS;
+    if already_running {
+        return None;
+    }
+    Some(handle)
+}
+
 fn main() -> eframe::Result<()> {
+    #[cfg(windows)]
+    let _mutex = match acquire_single_instance_lock() {
+        Some(h) => h,
+        None => {
+            // Another instance is already running — exit silently.
+            std::process::exit(0);
+        }
+    };
     // Logging (visible in debug builds because windows_subsystem is not set)
     env_logger::builder()
         .filter_level(log::LevelFilter::Info)
