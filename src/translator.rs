@@ -1,16 +1,7 @@
-use std::num::NonZeroU32;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use llama_cpp_2::{
-    context::params::LlamaContextParams,
-    llama_backend::LlamaBackend,
-    llama_batch::LlamaBatch,
-    model::{params::LlamaModelParams, AddBos, LlamaModel},
-    sampling::LlamaSampler,
-};
-
-use crate::config::{AppConfig, Backend, Language};
+use crate::config::Language;
 
 // ── Message types ────────────────────────────────────────────────────────────
 
@@ -20,85 +11,43 @@ pub enum InferRequest {
         source: Language,
         target: Language,
     },
-    Abort,
-    Reload(AppConfig),
 }
 
 pub enum UiMsg {
     HotkeyFired,
-    ModelLoaded,
-    ModelLoadProgress { percent: f32, stage: String },
-    ModelError(String),
     Token(String),
     TranslationDone,
     TranslationError(String),
-    GpuAvailable(bool),
 }
 
-// ── Inference thread ─────────────────────────────────────────────────────────
+// ── Translation thread ─────────────────────────────────────────────────────────
 
 pub fn spawn_inference_thread(
-    config: AppConfig,
     infer_rx: mpsc::Receiver<InferRequest>,
     ui_tx: mpsc::Sender<UiMsg>,
 ) -> std::thread::JoinHandle<()> {
     std::thread::Builder::new()
-        .name("tensorl-inference".into())
-        .stack_size(8 * 1024 * 1024)
-        .spawn(move || run_inference_loop(config, infer_rx, ui_tx))
-        .expect("failed to spawn inference thread")
+        .name("tensorl-translate".into())
+        .spawn(move || run_translate_loop(infer_rx, ui_tx))
+        .expect("failed to spawn translate thread")
 }
 
-fn run_inference_loop(
-    mut config: AppConfig,
+fn run_translate_loop(
     infer_rx: mpsc::Receiver<InferRequest>,
     ui_tx: mpsc::Sender<UiMsg>,
 ) {
-    // Detect CUDA at runtime by trying to load nvcuda.dll
-    let gpu_available = detect_cuda_runtime();
-    let _ = ui_tx.send(UiMsg::GpuAvailable(gpu_available));
-
-    let backend = match LlamaBackend::init() {
-        Ok(b) => b,
-        Err(e) => {
-            let _ = ui_tx.send(UiMsg::ModelError(format!("Backend init failed: {e}")));
-            return;
-        }
-    };
-
-    // Initial model load (if path is configured)
-    let mut model_opt = if config.model_path.as_os_str().is_empty()
-        || !config.model_path.exists()
-    {
-        let _ = ui_tx.send(UiMsg::ModelError("No model file selected.".into()));
-        None
-    } else {
-        load_model_with_progress(&backend, &config, &ui_tx)
-    };
-
     loop {
         match infer_rx.recv() {
-            Err(_) => break,
-
-            Ok(InferRequest::Abort) => { /* no-op: token loop already stopped */ }
-
-            Ok(InferRequest::Reload(new_cfg)) => {
-                config = new_cfg;
-                if config.model_path.exists() {
-                    model_opt = load_model_with_progress(&backend, &config, &ui_tx);
-                } else {
-                    let _ = ui_tx.send(UiMsg::ModelError("Model file not found.".into()));
-                    model_opt = None;
-                }
-            }
+            Err(_) => break, // channel closed → app shutting down
 
             Ok(InferRequest::Translate { text, source, target }) => {
-                match &model_opt {
-                    Some(model) => {
-                        run_translation(model, &backend, &config, &text, source, target, &ui_tx);
+                match google_translate(&text, source, target) {
+                    Ok(result) => {
+                        let _ = ui_tx.send(UiMsg::Token(result));
+                        let _ = ui_tx.send(UiMsg::TranslationDone);
                     }
-                    None => {
-                        let _ = ui_tx.send(UiMsg::TranslationError("Model not loaded.".into()));
+                    Err(e) => {
+                        let _ = ui_tx.send(UiMsg::TranslationError(e));
                     }
                 }
             }
@@ -106,199 +55,53 @@ fn run_inference_loop(
     }
 }
 
-// ── Model loading ─────────────────────────────────────────────────────────────
+// ── Google Translate ────────────────────────────────────────────────────────
 
-fn load_model_with_progress(
-    backend: &LlamaBackend,
-    config: &AppConfig,
-    ui_tx: &mpsc::Sender<UiMsg>,
-) -> Option<LlamaModel> {
-    // Fake progress on a side thread
-    let (done_tx, done_rx) = mpsc::channel::<()>();
-    let tx_prog = ui_tx.clone();
-    std::thread::spawn(move || {
-        let mut p = 0.0f32;
-        loop {
-            match done_rx.try_recv() {
-                Ok(_) | Err(mpsc::TryRecvError::Disconnected) => break,
-                Err(mpsc::TryRecvError::Empty) => {}
-            }
-            p = (p + 0.025).min(0.90);
-            let _ = tx_prog.send(UiMsg::ModelLoadProgress {
-                percent: p,
-                stage: "Loading model weights…".into(),
-            });
-            std::thread::sleep(Duration::from_millis(200));
-        }
-    });
+/// Call Google's translate backend — the same `translate_a/single` endpoint the
+/// translate.google.com web page uses. No API key required. Returns the full
+/// translated text, or a Chinese error message on failure.
+fn google_translate(text: &str, source: Language, target: Language) -> Result<String, String> {
+    let src = source.google_code();
+    let tgt = target.google_target_code();
 
-    let mut model_params = LlamaModelParams::default();
-    if config.backend == Backend::Gpu {
-        model_params = model_params.with_n_gpu_layers(config.n_gpu_layers as u32);
-    }
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(15))
+        .build();
 
-    let result = LlamaModel::load_from_file(backend, &config.model_path, &model_params);
-    let _ = done_tx.send(()); // signal progress thread to stop
+    let resp = agent
+        .get("https://translate.googleapis.com/translate_a/single")
+        .query("client", "gtx")
+        .query("sl", src)
+        .query("tl", tgt)
+        .query("dt", "t")
+        .query("q", text)
+        .call()
+        .map_err(|e| format!("网络请求失败: {e}"))?;
 
-    match result {
-        Ok(model) => {
-            let _ = ui_tx.send(UiMsg::ModelLoadProgress {
-                percent: 1.0,
-                stage: "Model ready".into(),
-            });
-            let _ = ui_tx.send(UiMsg::ModelLoaded);
-            Some(model)
-        }
-        Err(e) => {
-            let _ = ui_tx.send(UiMsg::ModelError(format!("Model load failed: {e}")));
-            None
-        }
-    }
+    let body = resp
+        .into_string()
+        .map_err(|e| format!("读取响应失败: {e}"))?;
+
+    parse_response(&body)
 }
 
-// ── Translation ───────────────────────────────────────────────────────────────
+/// Google returns a nested JSON array. The first element (`v[0]`) is an array of
+/// translated segments; each segment's first element (`seg[0]`) is the
+/// translated text. Concatenate them into the full result.
+fn parse_response(body: &str) -> Result<String, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(body).map_err(|e| format!("解析响应失败: {e}"))?;
 
-fn run_translation(
-    model: &LlamaModel,
-    backend: &LlamaBackend,
-    config: &AppConfig,
-    text: &str,
-    source: Language,
-    target: Language,
-    ui_tx: &mpsc::Sender<UiMsg>,
-) {
-    let prompt = build_prompt(text, source, target);
+    let segments = v
+        .get(0)
+        .and_then(|x| x.as_array())
+        .ok_or_else(|| "响应格式异常".to_string())?;
 
-    let n_ctx = NonZeroU32::new(config.n_ctx.max(512)).unwrap();
-    let ctx_params = LlamaContextParams::default()
-        .with_n_ctx(Some(n_ctx))
-        .with_n_threads(config.n_threads as i32);
-
-    let mut ctx = match model.new_context(backend, ctx_params) {
-        Ok(c) => c,
-        Err(e) => {
-            let _ = ui_tx.send(UiMsg::TranslationError(format!("Context error: {e}")));
-            return;
-        }
-    };
-
-    let tokens = match model.str_to_token(&prompt, AddBos::Always) {
-        Ok(t) => t,
-        Err(e) => {
-            let _ = ui_tx.send(UiMsg::TranslationError(format!("Tokenize error: {e}")));
-            return;
-        }
-    };
-
-    if tokens.is_empty() {
-        let _ = ui_tx.send(UiMsg::TranslationDone);
-        return;
-    }
-
-    // Prefill batch
-    let mut batch = LlamaBatch::new(tokens.len().max(512), 1);
-    for (i, &tok) in tokens.iter().enumerate() {
-        let is_last = i == tokens.len() - 1;
-        if let Err(e) = batch.add(tok, i as i32, &[0], is_last) {
-            let _ = ui_tx.send(UiMsg::TranslationError(format!("Batch add: {e}")));
-            return;
+    let mut out = String::new();
+    for seg in segments {
+        if let Some(s) = seg.get(0).and_then(|x| x.as_str()) {
+            out.push_str(s);
         }
     }
-
-    if let Err(e) = ctx.decode(&mut batch) {
-        let _ = ui_tx.send(UiMsg::TranslationError(format!("Prefill decode: {e}")));
-        return;
-    }
-
-    // Build sampler chain (HY-MT1.5 recommended params)
-    let mut sampler = LlamaSampler::chain_simple([
-        LlamaSampler::top_k(20),
-        LlamaSampler::top_p(0.6, 1),
-        LlamaSampler::temp(0.7),
-        LlamaSampler::penalties(0, 1.05, 0.0, 0.0),
-        LlamaSampler::dist(42),
-    ]);
-
-    let mut n_cur = tokens.len() as i32;
-    let n_max = n_cur + 4096;
-    let mut decoder = encoding_rs::UTF_8.new_decoder();
-
-    while n_cur < n_max {
-        let token = sampler.sample(&ctx, batch.n_tokens() - 1);
-        sampler.accept(token);
-
-        if model.is_eog_token(token) {
-            break;
-        }
-
-        let piece = model
-            .token_to_piece(token, &mut decoder, false, None)
-            .unwrap_or_default();
-
-        if piece.contains("<|im_") || piece.contains("<|endoftext|>") {
-            break;
-        }
-
-        if ui_tx.send(UiMsg::Token(piece)).is_err() {
-            break;
-        }
-
-        batch.clear();
-        if let Err(e) = batch.add(token, n_cur, &[0], true) {
-            let _ = ui_tx.send(UiMsg::TranslationError(format!("Decode batch: {e}")));
-            break;
-        }
-        if let Err(e) = ctx.decode(&mut batch) {
-            let _ = ui_tx.send(UiMsg::TranslationError(format!("Decode: {e}")));
-            break;
-        }
-
-        n_cur += 1;
-    }
-
-    let _ = ui_tx.send(UiMsg::TranslationDone);
-    // Context drops here, releasing KV cache memory
-}
-
-// ── Prompt builder ───────────────────────────────────────────────────────────
-
-pub fn build_prompt(text: &str, _source: Language, target: Language) -> String {
-    let tgt = target.hy_mt_en_name();
-    format!(
-        "<|im_start|>user\nTranslate the following segment into {tgt}, without additional explanation.\n\n{text}<|im_end|>\n<|im_start|>assistant\n"
-    )
-}
-
-// ── Runtime CUDA detection ──────────────────────────────────────────────────
-
-/// Check if CUDA is available at runtime by probing for both the driver
-/// (`nvcuda.dll`) and the runtime library (`cudart64_12.dll`).
-/// This lets a single binary work on both CUDA and non-CUDA machines.
-fn detect_cuda_runtime() -> bool {
-    #[cfg(target_os = "windows")]
-    {
-        use std::ffi::CString;
-        extern "system" {
-            fn LoadLibraryA(name: *const u8) -> *mut std::ffi::c_void;
-            fn FreeLibrary(handle: *mut std::ffi::c_void) -> i32;
-        }
-
-        fn try_load(dll: &str) -> bool {
-            let name = CString::new(dll).unwrap();
-            let handle = unsafe { LoadLibraryA(name.as_ptr() as *const u8) };
-            if handle.is_null() {
-                false
-            } else {
-                unsafe { FreeLibrary(handle); }
-                true
-            }
-        }
-
-        // Both the CUDA driver and the CUDA 12 runtime must be present
-        try_load("nvcuda.dll") && try_load("cudart64_12.dll")
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        false
-    }
+    Ok(out)
 }

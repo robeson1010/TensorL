@@ -14,9 +14,8 @@ eframe       = { version = "0.29", features = ["persistence"] }
 egui         = "0.29"
 egui_extras  = { version = "0.29", features = ["image"] }
 
-# LLM inference (GGUF via llama.cpp)
-llama-cpp-2  = "0.1"
-encoding_rs  = "0.8"
+# HTTP client for Google Translate (synchronous; self-contained rustls TLS)
+ureq = "2"
 
 # Global hotkey (low-level keyboard hook — does not intercept Ctrl+C)
 
@@ -25,9 +24,6 @@ arboard = "3"
 
 # System tray
 tray-icon = "0.14"
-
-# Native file dialog
-rfd = "0.14"
 
 # Config serialization
 serde      = { version = "1", features = ["derive"] }
@@ -59,11 +55,6 @@ windows = { version = "0.58", features = [
 
 [build-dependencies]
 winresource = "0.1"
-
-[features]
-default = []
-cuda    = ["llama-cpp-2/cuda"]
-vulkan  = ["llama-cpp-2/vulkan"]
 
 [profile.release]
 opt-level = 3

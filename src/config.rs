@@ -103,73 +103,46 @@ impl Language {
         }
     }
 
-    /// English name used in the HY-MT1.5 prompt (non-Chinese instruction branch)
-    pub fn hy_mt_en_name(self) -> &'static str {
+    /// Google Translate language code (used in `sl`/`tl` query params).
+    /// `Auto` maps to `"auto"` for source detection; as a target it falls
+    /// back to English.
+    pub fn google_code(self) -> &'static str {
         match self {
-            Language::Auto              => "English",
-            Language::Chinese           => "Chinese",
-            Language::English           => "English",
-            Language::French            => "French",
-            Language::Portuguese        => "Portuguese",
-            Language::Spanish           => "Spanish",
-            Language::Japanese          => "Japanese",
-            Language::Turkish           => "Turkish",
-            Language::Russian           => "Russian",
-            Language::Arabic            => "Arabic",
-            Language::Korean            => "Korean",
-            Language::Thai              => "Thai",
-            Language::Italian           => "Italian",
-            Language::German            => "German",
-            Language::Vietnamese        => "Vietnamese",
-            Language::Malay             => "Malay",
-            Language::Indonesian        => "Indonesian",
-            Language::Filipino          => "Filipino",
-            Language::Polish            => "Polish",
-            Language::Czech             => "Czech",
-            Language::Dutch             => "Dutch",
-            Language::Ukrainian         => "Ukrainian",
-            Language::Kazakh            => "Kazakh",
-            Language::Mongolian         => "Mongolian",
-            Language::Cantonese         => "Cantonese",
+            Language::Auto              => "auto",
+            Language::Chinese           => "zh-CN",
+            Language::English           => "en",
+            Language::French            => "fr",
+            Language::Portuguese        => "pt",
+            Language::Spanish           => "es",
+            Language::Japanese          => "ja",
+            Language::Turkish           => "tr",
+            Language::Russian           => "ru",
+            Language::Arabic            => "ar",
+            Language::Korean            => "ko",
+            Language::Thai              => "th",
+            Language::Italian           => "it",
+            Language::German            => "de",
+            Language::Vietnamese        => "vi",
+            Language::Malay             => "ms",
+            Language::Indonesian        => "id",
+            Language::Filipino          => "tl",
+            Language::Polish            => "pl",
+            Language::Czech             => "cs",
+            Language::Dutch             => "nl",
+            Language::Ukrainian         => "uk",
+            Language::Kazakh            => "kk",
+            Language::Mongolian         => "mn",
+            Language::Cantonese         => "yue",
         }
     }
 
-    /// Chinese name used in the HY-MT1.5 prompt (Chinese instruction branch)
-    pub fn hy_mt_zh_name(self) -> &'static str {
+    /// Google Translate target code — `Auto` is not a valid target, so it
+    /// falls back to English.
+    pub fn google_target_code(self) -> &'static str {
         match self {
-            Language::Auto              => "英语",
-            Language::Chinese           => "中文",
-            Language::English           => "英语",
-            Language::French            => "法语",
-            Language::Portuguese        => "葡萄牙语",
-            Language::Spanish           => "西班牙语",
-            Language::Japanese          => "日语",
-            Language::Turkish           => "土耳其语",
-            Language::Russian           => "俄语",
-            Language::Arabic            => "阿拉伯语",
-            Language::Korean            => "韩语",
-            Language::Thai              => "泰语",
-            Language::Italian           => "意大利语",
-            Language::German            => "德语",
-            Language::Vietnamese        => "越南语",
-            Language::Malay             => "马来语",
-            Language::Indonesian        => "印尼语",
-            Language::Filipino          => "菲律宾语",
-            Language::Polish            => "波兰语",
-            Language::Czech             => "捷克语",
-            Language::Dutch             => "荷兰语",
-            Language::Ukrainian         => "乌克兰语",
-            Language::Kazakh            => "哈萨克语",
-            Language::Mongolian         => "蒙古语",
-            Language::Cantonese         => "粤语",
+            Language::Auto => "en",
+            other          => other.google_code(),
         }
-    }
-
-    pub fn is_chinese(self) -> bool {
-        matches!(
-            self,
-            Language::Chinese | Language::Cantonese
-        )
     }
 }
 
@@ -179,51 +152,19 @@ impl Default for Language {
     }
 }
 
-// ── Backend ──────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum Backend {
-    #[default]
-    Cpu,
-    Gpu,
-}
-
-impl Backend {
-    pub fn display_name(self) -> &'static str {
-        match self {
-            Backend::Cpu => "CPU",
-            Backend::Gpu => "GPU (CUDA/Vulkan)",
-        }
-    }
-}
-
 // ── AppConfig ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
-    pub model_path:      PathBuf,
     pub source_language: Language,
     pub target_language: Language,
-    pub backend:         Backend,
-    /// Number of model layers to offload to GPU (99 = all)
-    pub n_gpu_layers:    i32,
-    /// Context size in tokens
-    pub n_ctx:           u32,
-    /// Number of CPU threads for inference
-    pub n_threads:       u32,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
-        let n_threads = (num_cpus() / 2).max(1) as u32;
         Self {
-            model_path:      PathBuf::new(),
             source_language: Language::Auto,
             target_language: Language::English,
-            backend:         Backend::Cpu,
-            n_gpu_layers:    99,
-            n_ctx:           2048,
-            n_threads,
         }
     }
 }
@@ -253,10 +194,4 @@ pub fn config_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
         .join("TensorL")
         .join("config.json")
-}
-
-fn num_cpus() -> usize {
-    std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4)
 }

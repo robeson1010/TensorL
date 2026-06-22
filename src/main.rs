@@ -49,7 +49,7 @@ fn main() -> eframe::Result<()> {
 
     // Spawn background threads
     hotkey::spawn_hotkey_thread(ui_tx.clone());
-    translator::spawn_inference_thread(config.clone(), infer_rx, ui_tx);
+    translator::spawn_inference_thread(infer_rx, ui_tx);
 
     // Build window icon from embedded PNG
     let icon = {

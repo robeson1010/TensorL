@@ -6,7 +6,7 @@ use egui::{
     TextEdit, Vec2,
 };
 
-use crate::config::{config_path, AppConfig, Backend, Language};
+use crate::config::{config_path, AppConfig, Language};
 use crate::translator::{InferRequest, UiMsg};
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -56,23 +56,12 @@ pub struct TensorLApp {
     ui_rx:    mpsc::Receiver<UiMsg>,
     infer_tx: mpsc::Sender<InferRequest>,
 
-    // Model state
-    model_loaded:   bool,
-    model_loading:  bool,
-    load_progress:  f32,
-    load_stage:     String,
-
     // Translation
     state:        TranslationState,
     source_text:  String,
     output_text:  String,
     source_lang:  Language,
     target_lang:  Language,
-
-    // Speed tracking
-    translation_start: Option<Instant>,
-    token_count:       usize,
-    tokens_per_second: f32,
 
     // History
     history:      Vec<HistoryEntry>,
@@ -82,9 +71,6 @@ pub struct TensorLApp {
 
     // UI helpers
     copy_toast:          Option<Instant>,
-    show_settings:       bool,
-    gpu_available:       bool,
-    pending_model_path:  String,
     show_all_src_langs:  bool,
     show_all_tgt_langs:  bool,
 
@@ -203,31 +189,19 @@ impl TensorLApp {
             h
         };
 
-        let pending_model_path = config.model_path.to_string_lossy().into_owned();
-
         Self {
             ui_rx,
             infer_tx,
-            model_loaded: false,
-            model_loading: !config.model_path.as_os_str().is_empty(),
-            load_progress: 0.0,
-            load_stage: "Loading model\u{2026}".into(),
             state: TranslationState::Idle,
             source_text: String::new(),
             output_text: String::new(),
             source_lang: config.source_language,
             target_lang: config.target_language,
-            translation_start: None,
-            token_count: 0,
-            tokens_per_second: 0.0,
             history: Vec::new(),
             show_history: false,
             show_donate: false,
             show_quit_confirm: false,
             copy_toast: None,
-            show_settings: false,
-            gpu_available: false,
-            pending_model_path,
             show_all_src_langs: false,
             show_all_tgt_langs: false,
             config,
@@ -244,42 +218,11 @@ impl TensorLApp {
             match msg {
                 UiMsg::HotkeyFired => self.on_hotkey(),
 
-                UiMsg::GpuAvailable(v) => { self.gpu_available = v; }
-
-                UiMsg::ModelLoaded => {
-                    self.model_loaded  = true;
-                    self.model_loading = false;
-                    self.load_progress = 1.0;
-                    self.load_stage    = "Model ready".into();
-                }
-                UiMsg::ModelLoadProgress { percent, stage } => {
-                    self.load_progress = percent;
-                    self.load_stage    = stage;
-                    self.model_loading = true;
-                }
-                UiMsg::ModelError(e) => {
-                    self.model_loading = false;
-                    self.model_loaded  = false;
-                    self.state = TranslationState::Error(e);
-                }
-
                 UiMsg::Token(t) => {
                     self.output_text.push_str(&t);
                     self.state = TranslationState::Translating;
-                    self.token_count += 1;
-                    if let Some(start) = self.translation_start {
-                        let elapsed = start.elapsed().as_secs_f32();
-                        if elapsed > 0.1 {
-                            self.tokens_per_second = self.token_count as f32 / elapsed;
-                        }
-                    }
                 }
                 UiMsg::TranslationDone => {
-                    for stop in &["<|im_end|>", "<|im_start|>", "<|endoftext|>"] {
-                        if let Some(pos) = self.output_text.find(stop) {
-                            self.output_text.truncate(pos);
-                        }
-                    }
                     self.output_text = self.output_text.trim_end().to_string();
                     self.state = TranslationState::Done;
 
@@ -343,12 +286,9 @@ impl TensorLApp {
     }
 
     fn start_translation(&mut self) {
-        if self.source_text.trim().is_empty() || !self.model_loaded { return; }
+        if self.source_text.trim().is_empty() { return; }
         self.output_text.clear();
         self.state = TranslationState::Translating;
-        self.translation_start = Some(Instant::now());
-        self.token_count = 0;
-        self.tokens_per_second = 0.0;
         let _ = self.infer_tx.send(InferRequest::Translate {
             text:   self.source_text.clone(),
             source: self.source_lang,
@@ -360,6 +300,17 @@ impl TensorLApp {
         self.config.source_language = self.source_lang;
         self.config.target_language = self.target_lang;
         self.config.save(&config_path());
+    }
+
+    fn detect_is_chinese(text: &str) -> bool {
+        let total = text.chars().count();
+        if total == 0 { return false; }
+        let cjk = text.chars().filter(|&c| matches!(c,
+            '\u{4E00}'..='\u{9FFF}' |
+            '\u{3400}'..='\u{4DBF}' |
+            '\u{F900}'..='\u{FAFF}'
+        )).count();
+        cjk * 100 / total > 20
     }
 
     // ── UI: Top Bar ──────────────────────────────────────────────────────────
@@ -449,8 +400,8 @@ impl TensorLApp {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                         }
 
-                        // Only show settings/history buttons when no panel is open
-                        if !self.show_settings && !self.show_history {
+                        // Only show the history button when no panel is open
+                        if !self.show_history {
                             ui.add_space(8.0);
 
                             // History button
@@ -463,18 +414,6 @@ impl TensorLApp {
                                 .fill(Color32::TRANSPARENT),
                             ).on_hover_text("翻译历史").clicked() {
                                 self.show_history = true;
-                            }
-
-                            // Settings button
-                            if ui.add(
-                                egui::Button::new(
-                                    RichText::new("\u{2699}").size(14.0).color(TEXT_SECONDARY),
-                                )
-                                .rounding(Rounding::same(12.0))
-                                .min_size(Vec2::new(28.0, 28.0))
-                                .fill(Color32::TRANSPARENT),
-                            ).on_hover_text("设置").clicked() {
-                                self.show_settings = true;
                             }
                         }
                     });
@@ -522,6 +461,28 @@ impl TensorLApp {
     // ── UI: Main Panels ──────────────────────────────────────────────────────
 
     fn draw_main_panels(&mut self, ctx: &egui::Context) {
+        let source_id = egui::Id::new("source_text_edit");
+        let source_focused = ctx.memory(|m| m.has_focus(source_id));
+
+        // Capture paste event text before the TextEdit consumes it
+        let pasted_text: Option<String> = ctx.input(|i| {
+            i.events.iter().find_map(|e| {
+                if let egui::Event::Paste(s) = e { Some(s.clone()) } else { None }
+            })
+        });
+
+        // Consume plain Enter (no Shift) when source box is focused so the
+        // TextEdit does not insert a newline — we use it to trigger translation.
+        let enter_to_translate = source_focused && ctx.input_mut(|i| {
+            let pressed = i.key_pressed(egui::Key::Enter) && !i.modifiers.shift;
+            if pressed {
+                i.events.retain(|e| {
+                    !matches!(e, egui::Event::Key { key: egui::Key::Enter, pressed: true, .. })
+                });
+            }
+            pressed
+        });
+
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::none()
@@ -529,16 +490,6 @@ impl TensorLApp {
                     .inner_margin(egui::Margin::symmetric(16.0, 12.0)),
             )
             .show(ctx, |ui| {
-                // First-run: model not configured
-                if !self.model_loaded
-                    && !self.model_loading
-                    && (self.config.model_path.as_os_str().is_empty()
-                        || !self.config.model_path.exists())
-                {
-                    self.draw_first_run(ui);
-                    return;
-                }
-
                 let total_width = ui.available_width();
                 let panel_width = (total_width - 12.0) / 2.0;
                 let panel_height = ui.available_height();
@@ -581,6 +532,7 @@ impl TensorLApp {
                                         ui.add_sized(
                                             [panel_width - 34.0, text_h - 28.0],
                                             TextEdit::multiline(&mut self.source_text)
+                                                .id(source_id)
                                                 .hint_text(
                                                     RichText::new("在此输入文本...")
                                                         .color(TEXT_HINT)
@@ -620,13 +572,9 @@ impl TensorLApp {
                                         .color(count_color),
                                 );
 
-                                // Loading indicator or translate button
-                                if !self.model_loaded {
-                                    if self.model_loading {
-                                        ui.spinner();
-                                    }
-                                } else {
-                                    // Auto-translate hint (just visual, translation is manual)
+                                // Spinner while a translation request is in flight
+                                if self.state == TranslationState::Translating {
+                                    ui.spinner();
                                 }
                             });
                         });
@@ -744,233 +692,21 @@ impl TensorLApp {
                     });
                 });
             });
-    }
 
-    fn draw_first_run(&mut self, ui: &mut egui::Ui) {
-        ui.vertical_centered(|ui| {
-            ui.add_space(80.0);
-            ui.add(
-                egui::Image::new(egui::include_image!("../assets/icon.png"))
-                    .max_size(Vec2::splat(72.0)),
-            );
-            ui.add_space(12.0);
-            ui.label(
-                RichText::new("欢迎使用 TensorL")
-                    .size(22.0)
-                    .color(TEXT_PRIMARY)
-                    .strong(),
-            );
-            ui.add_space(8.0);
-            ui.label(
-                RichText::new("请选择 HY-MT1.5-1.8B GGUF 模型文件以开始使用")
-                    .color(TEXT_SECONDARY),
-            );
-            ui.add_space(20.0);
-
-            ui.horizontal(|ui| {
-                ui.add_space(ui.available_width() / 4.0);
-                ui.add(
-                    TextEdit::singleline(&mut self.pending_model_path)
-                        .hint_text("模型文件路径 (.gguf)\u{2026}")
-                        .desired_width(300.0),
-                );
-                if ui.button("浏览\u{2026}").clicked() {
-                    if let Some(p) = rfd::FileDialog::new()
-                        .add_filter("GGUF model", &["gguf"])
-                        .pick_file()
-                    {
-                        self.pending_model_path = p.to_string_lossy().into_owned();
-                    }
-                }
-            });
-
-            ui.add_space(12.0);
-
-            let valid = std::path::Path::new(&self.pending_model_path).exists();
-            ui.add_enabled_ui(valid, |ui| {
-                if ui
-                    .add(
-                        egui::Button::new(
-                            RichText::new("加载模型").size(14.0),
-                        )
-                        .rounding(Rounding::same(8.0))
-                        .min_size(Vec2::new(120.0, 34.0)),
-                    )
-                    .clicked()
-                {
-                    self.config.model_path =
-                        std::path::PathBuf::from(&self.pending_model_path);
-                    self.config.save(&config_path());
-                    self.model_loading = true;
-                    let _ = self.infer_tx.send(InferRequest::Reload(self.config.clone()));
-                }
-            });
-
-            if !valid && !self.pending_model_path.is_empty() {
-                ui.add_space(6.0);
-                ui.label(
-                    RichText::new("文件未找到")
-                        .color(RED_ERROR)
-                        .small(),
-                );
-            }
-
-            ui.add_space(20.0);
-            ui.label(
-                RichText::new(
-                    "下载模型:\nhttps://huggingface.co/tencent/HY-MT1.5-1.8B-GGUF",
-                )
-                .color(TEXT_HINT)
-                .small(),
-            );
-        });
-    }
-
-    // ── UI: Settings Panel ───────────────────────────────────────────────────
-
-    fn draw_settings_panel(&mut self, ctx: &egui::Context) {
-        if !self.show_settings { return; }
-
-        egui::SidePanel::right("settings_panel")
-            .resizable(false)
-            .exact_width(260.0)
-            .frame(
-                egui::Frame::none()
-                    .fill(Color32::from_rgb(28, 28, 34))
-                    .inner_margin(egui::Margin::same(16.0))
-                    .stroke(Stroke::new(1.0, BORDER_SUBTLE)),
-            )
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("设置").size(16.0).color(TEXT_PRIMARY).strong());
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui.add(
-                            egui::Button::new(RichText::new("\u{2715}").size(14.0).color(TEXT_SECONDARY))
-                                .fill(Color32::TRANSPARENT)
-                                .rounding(Rounding::same(10.0))
-                                .min_size(Vec2::new(24.0, 24.0)),
-                        ).clicked() {
-                            self.show_settings = false;
-                        }
-                    });
-                });
-                ui.add_space(12.0);
-                ui.separator();
-                ui.add_space(12.0);
-
-                // Model path
-                ui.label(RichText::new("模型文件").color(TEXT_PRIMARY).strong());
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    ui.add(
-                        TextEdit::singleline(&mut self.pending_model_path)
-                            .desired_width(160.0),
-                    );
-                    if ui.small_button("\u{2026}").clicked() {
-                        if let Some(p) = rfd::FileDialog::new()
-                            .add_filter("GGUF model", &["gguf"])
-                            .pick_file()
-                        {
-                            self.pending_model_path = p.to_string_lossy().into_owned();
-                        }
-                    }
-                });
-
-                ui.add_space(12.0);
-
-                // Backend
-                ui.label(RichText::new("推理后端").color(TEXT_PRIMARY).strong());
-                ui.add_space(4.0);
-
-                let prev_backend = self.config.backend;
-                ui.radio_value(&mut self.config.backend, Backend::Cpu, "CPU");
-
-                let gpu_label = if self.gpu_available {
-                    "GPU (CUDA)"
+        // Auto-detect language and translate after paste
+        if let Some(ref pasted) = pasted_text {
+            if !pasted.trim().is_empty() {
+                self.target_lang = if Self::detect_is_chinese(pasted) {
+                    Language::English
                 } else {
-                    "GPU (未检测到 CUDA)"
+                    Language::Chinese
                 };
-                ui.add_enabled_ui(self.gpu_available, |ui| {
-                    ui.radio_value(&mut self.config.backend, Backend::Gpu, gpu_label);
-                });
-
-                if !self.gpu_available && self.config.backend == Backend::Gpu {
-                    self.config.backend = Backend::Cpu;
-                }
-
-                ui.add_space(4.0);
-                ui.label(
-                    RichText::new(if self.gpu_available {
-                        "已检测到 NVIDIA GPU，可选择 GPU 加速"
-                    } else {
-                        "未检测到 CUDA 驱动，仅支持 CPU 推理"
-                    })
-                    .small()
-                    .color(TEXT_HINT),
-                );
-
-                ui.add_space(12.0);
-
-                // Threads
-                if self.config.backend == Backend::Cpu {
-                    ui.label(RichText::new("CPU 线程数").color(TEXT_PRIMARY).strong());
-                    ui.add(
-                        egui::Slider::new(&mut self.config.n_threads, 1..=32)
-                            .text("线程"),
-                    );
-                    ui.add_space(12.0);
-                }
-
-                ui.separator();
-                ui.add_space(12.0);
-
-                // Apply
-                let path_changed =
-                    self.pending_model_path != self.config.model_path.to_string_lossy();
-                let backend_changed = self.config.backend != prev_backend;
-                let needs_reload = path_changed || backend_changed;
-
-                ui.add_enabled_ui(needs_reload, |ui| {
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                RichText::new("应用并重新加载模型").size(13.0),
-                            )
-                            .rounding(Rounding::same(8.0))
-                            .min_size(Vec2::new(220.0, 32.0)),
-                        )
-                        .clicked()
-                    {
-                        self.config.model_path =
-                            std::path::PathBuf::from(&self.pending_model_path);
-                        self.config.save(&config_path());
-                        self.model_loaded  = false;
-                        self.model_loading = true;
-                        self.output_text.clear();
-                        self.state = TranslationState::Idle;
-                        let _ = self.infer_tx.send(InferRequest::Reload(self.config.clone()));
-                    }
-                });
-
-                ui.add_space(16.0);
-                ui.separator();
-                ui.add_space(12.0);
-
-                ui.label(RichText::new("模型下载").color(TEXT_PRIMARY).strong());
-                ui.add_space(4.0);
-                ui.label(
-                    RichText::new("如需下载 HY-MT1.5-1.8B GGUF 模型:")
-                        .size(12.0)
-                        .color(TEXT_SECONDARY),
-                );
-                ui.add_space(4.0);
-                if ui.add(
-                    egui::Hyperlink::from_label_and_url(
-                        RichText::new("ModelScope 下载页面").size(12.0).color(ACCENT_PURPLE),
-                        "https://www.modelscope.cn/models/Tencent-Hunyuan/HY-MT1.5-1.8B-GGUF/files",
-                    ),
-                ).on_hover_text("在浏览器中打开").clicked() {}
-            });
+                self.save_config();
+                self.start_translation();
+            }
+        } else if enter_to_translate && !self.source_text.trim().is_empty() {
+            self.start_translation();
+        }
     }
 
     // ── UI: History Panel ────────────────────────────────────────────────────
@@ -1080,49 +816,28 @@ impl TensorLApp {
             )
             .show(ctx, |ui| {
                 ui.horizontal_centered(|ui| {
-                    // Left: model status with colored dot
-                    if self.model_loaded {
-                        let (dot_rect, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
-                        ui.painter().circle_filled(dot_rect.center(), 4.0, GREEN_DOT);
-                        ui.add_space(4.0);
-
-                        let model_name = self.config.model_path
-                            .file_stem()
-                            .unwrap_or_default()
-                            .to_string_lossy();
-                        ui.label(
-                            RichText::new(format!("{} (已加载)", model_name))
-                                .size(12.0)
-                                .color(TEXT_SECONDARY),
-                        );
-                    } else if self.model_loading {
-                        let (dot_rect, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
-                        ui.painter().circle_filled(
-                            dot_rect.center(), 4.0,
-                            Color32::from_rgb(220, 180, 50),
-                        );
-                        ui.add_space(4.0);
-                        ui.label(
-                            RichText::new(format!(
-                                "{} ({:.0}%)",
-                                self.load_stage,
-                                self.load_progress * 100.0,
-                            ))
-                            .size(12.0)
-                            .color(TEXT_SECONDARY),
-                        );
-                    } else {
+                    // Left: online status with colored dot
+                    if let TranslationState::Error(_) = self.state {
                         let (dot_rect, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
                         ui.painter().circle_filled(dot_rect.center(), 4.0, RED_ERROR);
                         ui.add_space(4.0);
                         ui.label(
-                            RichText::new("未加载模型")
+                            RichText::new("翻译失败")
                                 .size(12.0)
                                 .color(TEXT_HINT),
                         );
+                    } else {
+                        let (dot_rect, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
+                        ui.painter().circle_filled(dot_rect.center(), 4.0, GREEN_DOT);
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new("Google 翻译 · 在线")
+                                .size(12.0)
+                                .color(TEXT_SECONDARY),
+                        );
                     }
 
-                    // Right: donate heart → speed/hint
+                    // Right: donate heart → translating status / hint
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         // Heart / donate button (rightmost corner)
                         if ui.add(
@@ -1136,14 +851,11 @@ impl TensorLApp {
                             self.show_donate = !self.show_donate;
                         }
 
-                        if self.state == TranslationState::Translating && self.tokens_per_second > 0.0 {
+                        if self.state == TranslationState::Translating {
                             ui.label(
-                                RichText::new(format!(
-                                    "正在生成\u{2026} {:.0} tokens/s",
-                                    self.tokens_per_second,
-                                ))
-                                .size(12.0)
-                                .color(TEXT_SECONDARY),
+                                RichText::new("正在翻译\u{2026}")
+                                    .size(12.0)
+                                    .color(TEXT_SECONDARY),
                             );
                         } else {
                             ui.label(
@@ -1280,7 +992,6 @@ impl eframe::App for TensorLApp {
             }
         }
 
-        self.draw_settings_panel(ctx);
         self.draw_history_panel(ctx);
         self.draw_top_bar(ctx);
         self.draw_status_bar(ctx);
