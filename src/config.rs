@@ -144,6 +144,68 @@ impl Language {
             other          => other.google_code(),
         }
     }
+
+    /// Reverse-map a Google language code to a Language variant.
+    pub fn from_google_code(code: &str) -> Option<Self> {
+        match code {
+            "zh-CN" | "zh" | "zh-TW" => Some(Language::Chinese),
+            "en"  => Some(Language::English),
+            "fr"  => Some(Language::French),
+            "pt"  => Some(Language::Portuguese),
+            "es"  => Some(Language::Spanish),
+            "ja"  => Some(Language::Japanese),
+            "tr"  => Some(Language::Turkish),
+            "ru"  => Some(Language::Russian),
+            "ar"  => Some(Language::Arabic),
+            "ko"  => Some(Language::Korean),
+            "th"  => Some(Language::Thai),
+            "it"  => Some(Language::Italian),
+            "de"  => Some(Language::German),
+            "vi"  => Some(Language::Vietnamese),
+            "ms"  => Some(Language::Malay),
+            "id"  => Some(Language::Indonesian),
+            "tl"  => Some(Language::Filipino),
+            "pl"  => Some(Language::Polish),
+            "cs"  => Some(Language::Czech),
+            "nl"  => Some(Language::Dutch),
+            "uk"  => Some(Language::Ukrainian),
+            "kk"  => Some(Language::Kazakh),
+            "mn"  => Some(Language::Mongolian),
+            "yue" => Some(Language::Cantonese),
+            _     => None,
+        }
+    }
+
+    /// Short display name used inside the Auto-detect pill.
+    pub fn short_name(self) -> &'static str {
+        match self {
+            Language::Auto        => "Auto",
+            Language::Chinese     => "中文",
+            Language::English     => "English",
+            Language::French      => "Français",
+            Language::Portuguese  => "Português",
+            Language::Spanish     => "Español",
+            Language::Japanese    => "日本語",
+            Language::Turkish     => "Türkçe",
+            Language::Russian     => "Русский",
+            Language::Arabic      => "العربية",
+            Language::Korean      => "한국어",
+            Language::Thai        => "ภาษาไทย",
+            Language::Italian     => "Italiano",
+            Language::German      => "Deutsch",
+            Language::Vietnamese  => "Tiếng Việt",
+            Language::Malay       => "Melayu",
+            Language::Indonesian  => "Indonesia",
+            Language::Filipino    => "Filipino",
+            Language::Polish      => "Polski",
+            Language::Czech       => "Čeština",
+            Language::Dutch       => "Nederlands",
+            Language::Ukrainian   => "Українська",
+            Language::Kazakh      => "Қазақша",
+            Language::Mongolian   => "Монгол",
+            Language::Cantonese   => "粤语",
+        }
+    }
 }
 
 impl Default for Language {

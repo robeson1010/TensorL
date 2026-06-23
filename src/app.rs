@@ -69,6 +69,9 @@ pub struct TensorLApp {
     show_donate:  bool,
     show_quit_confirm: bool,
 
+    // Detected language when source is Auto
+    detected_lang: Option<Language>,
+
     // UI helpers
     copy_toast:          Option<Instant>,
     show_all_src_langs:  bool,
@@ -201,6 +204,7 @@ impl TensorLApp {
             show_history: false,
             show_donate: false,
             show_quit_confirm: false,
+            detected_lang: None,
             copy_toast: None,
             show_all_src_langs: false,
             show_all_tgt_langs: false,
@@ -240,6 +244,21 @@ impl TensorLApp {
                     }
                 }
                 UiMsg::TranslationError(e) => { self.state = TranslationState::Error(e); }
+                UiMsg::DetectedLanguage(lang) => {
+                    self.detected_lang = Some(lang);
+                    // Keep target in sync with what Google actually detected
+                    if self.source_lang == Language::Auto {
+                        let correct_target = if lang == Language::English {
+                            Language::Chinese
+                        } else {
+                            Language::English
+                        };
+                        if self.target_lang != correct_target {
+                            self.target_lang = correct_target;
+                            self.save_config();
+                        }
+                    }
+                }
             }
         }
     }
@@ -288,6 +307,7 @@ impl TensorLApp {
     fn start_translation(&mut self) {
         if self.source_text.trim().is_empty() { return; }
         self.output_text.clear();
+        self.detected_lang = None;
         self.state = TranslationState::Translating;
         let _ = self.infer_tx.send(InferRequest::Translate {
             text:   self.source_text.clone(),
@@ -302,15 +322,31 @@ impl TensorLApp {
         self.config.save(&config_path());
     }
 
-    fn detect_is_chinese(text: &str) -> bool {
-        let total = text.chars().count();
-        if total == 0 { return false; }
-        let cjk = text.chars().filter(|&c| matches!(c,
-            '\u{4E00}'..='\u{9FFF}' |
-            '\u{3400}'..='\u{4DBF}' |
-            '\u{F900}'..='\u{FAFF}'
-        )).count();
-        cjk * 100 / total > 20
+    /// Returns true when the text is predominantly English (ASCII alphabetic).
+    fn detect_is_english(text: &str) -> bool {
+        let non_space: Vec<char> = text.chars().filter(|c| !c.is_whitespace()).collect();
+        if non_space.is_empty() { return false; }
+        let ascii_alpha = non_space.iter().filter(|c| c.is_ascii_alphabetic()).count();
+        ascii_alpha * 100 / non_space.len() > 60
+    }
+
+    fn speak_text(text: &str) {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            let escaped = text.replace('\'', "''");
+            let script = format!(
+                "Add-Type -AssemblyName System.Speech; \
+                 $tts = New-Object System.Speech.Synthesis.SpeechSynthesizer; \
+                 $tts.Speak('{}')",
+                escaped
+            );
+            let _ = std::process::Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn();
+        }
     }
 
     // ── UI: Top Bar ──────────────────────────────────────────────────────────
@@ -426,8 +462,19 @@ impl TensorLApp {
         let id_salt = if is_source { "src_lang_pill" } else { "tgt_lang_pill" };
         let current = if is_source { self.source_lang } else { self.target_lang };
 
+        // When Auto Detect is active and a language has been identified, show it.
+        let pill_label = if is_source && current == Language::Auto {
+            if let Some(detected) = self.detected_lang {
+                format!("Auto · {}", detected.short_name())
+            } else {
+                current.display_name().to_string()
+            }
+        } else {
+            current.display_name().to_string()
+        };
+
         egui::ComboBox::from_id_salt(id_salt)
-            .selected_text(RichText::new(current.display_name()).size(14.0).color(TEXT_PRIMARY))
+            .selected_text(RichText::new(pill_label).size(14.0).color(TEXT_PRIMARY))
             .width(160.0)
             .show_ui(ui, |ui| {
                 let show_all = if is_source { self.show_all_src_langs } else { self.show_all_tgt_langs };
@@ -563,6 +610,23 @@ impl TensorLApp {
                                 self.state = TranslationState::Idle;
                             }
 
+                            // 🔊 Read button — shown when source content is English
+                            let src_is_english = self.source_lang == Language::English
+                                || (self.source_lang == Language::Auto
+                                    && self.detected_lang == Some(Language::English));
+                            if src_is_english && !self.source_text.is_empty() {
+                                if ui.add(
+                                    egui::Button::new(
+                                        RichText::new("\u{1F50A}").size(16.0).color(TEXT_SECONDARY),
+                                    )
+                                    .fill(Color32::TRANSPARENT)
+                                    .rounding(Rounding::same(6.0))
+                                    .min_size(Vec2::new(28.0, 24.0)),
+                                ).on_hover_text("朗读").clicked() {
+                                    Self::speak_text(&self.source_text);
+                                }
+                            }
+
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 let count = self.source_text.chars().count();
                                 let count_color = if count >= MAX_CHARS { RED_ERROR } else { TEXT_SECONDARY };
@@ -687,6 +751,24 @@ impl TensorLApp {
                                         self.copy_toast = Some(Instant::now());
                                     }
                                 }
+
+                                // 🔊 Read button — shown when result is English
+                                if self.target_lang == Language::English
+                                    && !self.output_text.is_empty()
+                                {
+                                    ui.add_space(2.0);
+                                    if ui.add(
+                                        egui::Button::new(
+                                            RichText::new("\u{1F50A}").size(16.0).color(TEXT_SECONDARY),
+                                        )
+                                        .fill(Color32::TRANSPARENT)
+                                        .rounding(Rounding::same(6.0))
+                                        .min_size(Vec2::new(28.0, 24.0)),
+                                    ).on_hover_text("朗读").clicked() {
+                                        let text = self.output_text.clone();
+                                        Self::speak_text(&text);
+                                    }
+                                }
                             });
                         });
                     });
@@ -696,12 +778,15 @@ impl TensorLApp {
         // Auto-detect language and translate after paste
         if let Some(ref pasted) = pasted_text {
             if !pasted.trim().is_empty() {
-                self.target_lang = if Self::detect_is_chinese(pasted) {
-                    Language::English
-                } else {
-                    Language::Chinese
-                };
-                self.save_config();
+                // Only auto-switch target when source is set to Auto Detect
+                if self.source_lang == Language::Auto {
+                    self.target_lang = if Self::detect_is_english(pasted) {
+                        Language::Chinese
+                    } else {
+                        Language::English
+                    };
+                    self.save_config();
+                }
                 self.start_translation();
             }
         } else if enter_to_translate && !self.source_text.trim().is_empty() {

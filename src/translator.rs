@@ -18,6 +18,7 @@ pub enum UiMsg {
     Token(String),
     TranslationDone,
     TranslationError(String),
+    DetectedLanguage(Language),
 }
 
 // ── Translation thread ─────────────────────────────────────────────────────────
@@ -42,7 +43,10 @@ fn run_translate_loop(
 
             Ok(InferRequest::Translate { text, source, target }) => {
                 match google_translate(&text, source, target) {
-                    Ok(result) => {
+                    Ok((result, detected)) => {
+                        if let Some(lang) = detected {
+                            let _ = ui_tx.send(UiMsg::DetectedLanguage(lang));
+                        }
                         let _ = ui_tx.send(UiMsg::Token(result));
                         let _ = ui_tx.send(UiMsg::TranslationDone);
                     }
@@ -60,7 +64,7 @@ fn run_translate_loop(
 /// Call Google's translate backend — the same `translate_a/single` endpoint the
 /// translate.google.com web page uses. No API key required. Returns the full
 /// translated text, or a Chinese error message on failure.
-fn google_translate(text: &str, source: Language, target: Language) -> Result<String, String> {
+fn google_translate(text: &str, source: Language, target: Language) -> Result<(String, Option<Language>), String> {
     let src = source.google_code();
     let tgt = target.google_target_code();
 
@@ -82,13 +86,14 @@ fn google_translate(text: &str, source: Language, target: Language) -> Result<St
         .into_string()
         .map_err(|e| format!("读取响应失败: {e}"))?;
 
-    parse_response(&body)
+    parse_response(&body, source)
 }
 
 /// Google returns a nested JSON array. The first element (`v[0]`) is an array of
 /// translated segments; each segment's first element (`seg[0]`) is the
-/// translated text. Concatenate them into the full result.
-fn parse_response(body: &str) -> Result<String, String> {
+/// translated text. `v[2]` holds the detected source language code when
+/// `sl=auto`. Concatenate segments into the full result.
+fn parse_response(body: &str, source: Language) -> Result<(String, Option<Language>), String> {
     let v: serde_json::Value =
         serde_json::from_str(body).map_err(|e| format!("解析响应失败: {e}"))?;
 
@@ -103,5 +108,14 @@ fn parse_response(body: &str) -> Result<String, String> {
             out.push_str(s);
         }
     }
-    Ok(out)
+
+    let detected = if source == Language::Auto {
+        v.get(2)
+            .and_then(|x| x.as_str())
+            .and_then(Language::from_google_code)
+    } else {
+        None
+    };
+
+    Ok((out, detected))
 }
